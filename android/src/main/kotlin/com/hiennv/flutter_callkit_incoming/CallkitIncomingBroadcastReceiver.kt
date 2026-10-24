@@ -232,7 +232,7 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
                 try {
                     registerTelecomIncomingCall(context, data)
                     val incomingData = Data.fromBundle(data)
-                    if (incomingData.isFullScreen) {
+                    if (incomingData.isFullScreen && Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
                         val intent = CallkitIncomingActivity.getIntent(context, data)
                         context.startActivity(intent)
                     } else {

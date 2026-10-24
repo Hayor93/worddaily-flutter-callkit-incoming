@@ -146,6 +146,7 @@ class CallkitConnection(
         super.onSilence()
         Log.d(TAG, "onSilence id=$callId")
         FlutterCallkitIncomingPlugin.getInstance()?.getCallkitSoundPlayerManager()?.stop()
+        FlutterCallkitIncomingPlugin.getInstance()?.getCallkitNotificationManager()?.silenceIncomingCall(callId)
     }
 
     override fun onUnhold() {

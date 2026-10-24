@@ -49,7 +49,7 @@ class CallkitNotificationManager(
 
         const val EXTRA_TIME_START_CALL = "EXTRA_TIME_START_CALL"
 
-        const val NOTIFICATION_CHANNEL_ID_INCOMING = "callkit_incoming_channel_id_v2"
+        const val NOTIFICATION_CHANNEL_ID_INCOMING = WordDailyCallChannels.INCOMING
         private const val LEGACY_NOTIFICATION_CHANNEL_ID_INCOMING = "callkit_incoming_channel_id"
         const val NOTIFICATION_CHANNEL_ID_ONGOING = "callkit_ongoing_channel_id"
         const val NOTIFICATION_CHANNEL_ID_MISSED = "callkit_missed_channel_id"
@@ -65,6 +65,8 @@ class CallkitNotificationManager(
     // End Signify modification
 
     private var notificationBuilder: NotificationCompat.Builder? = null
+    private var incomingNotificationId: Int? = null
+    private var silencedIncomingId: Int? = null
     private var notificationViews: RemoteViews? = null
     private var notificationSmallViews: RemoteViews? = null
 
@@ -91,7 +93,7 @@ class CallkitNotificationManager(
     private fun createInComingAvatarTargetDefault(notificationId: Int): SafeTarget {
         return object : SafeTarget(notificationId, onLoaded = { bitmap ->
             notificationBuilder?.setLargeIcon(bitmap)
-            notificationBuilder?.let { getNotificationManager().notify(notificationId, it.build()) }
+            notificationBuilder?.let { getNotificationManager().notify(notificationId, buildIncomingNotification(it)) }
         }) {}
     }
 
@@ -106,7 +108,7 @@ class CallkitNotificationManager(
             notificationSmallViews?.setImageViewBitmap(R.id.ivAvatar, bitmap)
             notificationSmallViews?.setViewVisibility(R.id.ivAvatar, View.VISIBLE)
             if (isCallStyle) notificationBuilder?.setLargeIcon(bitmap)
-            notificationBuilder?.let { getNotificationManager().notify(notificationId, it.build()) }
+            notificationBuilder?.let { getNotificationManager().notify(notificationId, buildIncomingNotification(it)) }
         }) {}
     }
 
@@ -187,6 +189,8 @@ class CallkitNotificationManager(
         val notificationId =
             data.getString(CallkitConstants.EXTRA_CALLKIT_ID, "callkit_incoming").hashCode()
         createNotificationChanel(data)
+        if (incomingNotificationId != notificationId) silencedIncomingId = null
+        incomingNotificationId = notificationId
 
         notificationBuilder = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID_INCOMING)
         notificationBuilder?.setChannelId(NOTIFICATION_CHANNEL_ID_INCOMING)
@@ -204,7 +208,7 @@ class CallkitNotificationManager(
                 CallkitConstants.EXTRA_CALLKIT_DURATION, 0L
             )
         )
-        notificationBuilder?.setOnlyAlertOnce(true)
+        notificationBuilder?.setOnlyAlertOnce(false)
         notificationBuilder?.setSound(null)
         notificationBuilder?.setFullScreenIntent(
             getActivityPendingIntent(notificationId, data), true
@@ -355,7 +359,7 @@ class CallkitNotificationManager(
             }
         }
         notificationBuilder?.setOngoing(true)
-        val notification = notificationBuilder?.build()
+        val notification = notificationBuilder?.let { buildIncomingNotification(it) }
 
         return notification?.let { CallkitNotification(notificationId, it) }
     }
@@ -893,62 +897,32 @@ class CallkitNotificationManager(
     }
 
     fun createNotificationChanel(data: Bundle) {
-        val incomingCallChannelName = data.getString(
-            CallkitConstants.EXTRA_CALLKIT_INCOMING_CALL_NOTIFICATION_CHANNEL_NAME, "Incoming Call"
-        )
-        val missedCallChannelName = data.getString(
-            CallkitConstants.EXTRA_CALLKIT_MISSED_CALL_NOTIFICATION_CHANNEL_NAME, "Missed Call"
-        )
-        val ongoingCallChannelName = data.getString(
-            CallkitConstants.EXTRA_CALLKIT_ONGOING_CALL_NOTIFICATION_CHANNEL_NAME, "Ongoing Call"
-        );
+        WordDailyCallChannels.ensure(context)
+    }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            getNotificationManager().apply {
-                var channelCall = getNotificationChannel(NOTIFICATION_CHANNEL_ID_INCOMING)
-                if (channelCall != null) {
-                    channelCall.setSound(null, null)
-                } else {
-                    channelCall = NotificationChannel(
-                        NOTIFICATION_CHANNEL_ID_INCOMING,
-                        incomingCallChannelName,
-                        NotificationManager.IMPORTANCE_HIGH
-                    ).apply {
-                        description = ""
-                        vibrationPattern = longArrayOf(0, 1000, 500, 1000, 500)
-                        lightColor = Color.RED
-                        enableLights(true)
-                        enableVibration(true)
-                        setSound(null, null)
-                    }
-                }
-                channelCall.lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-
-                channelCall.importance = NotificationManager.IMPORTANCE_HIGH
-
-                createNotificationChannel(channelCall)
-
-                val channelMissedCall = NotificationChannel(
-                    NOTIFICATION_CHANNEL_ID_MISSED,
-                    missedCallChannelName,
-                    NotificationManager.IMPORTANCE_DEFAULT
-                ).apply {
-                    description = ""
-                    vibrationPattern = longArrayOf(0, 1000)
-                    lightColor = Color.RED
-                    enableLights(true)
-                    enableVibration(true)
-                }
-                channelMissedCall.importance = NotificationManager.IMPORTANCE_HIGH
-                createNotificationChannel(channelMissedCall)
-
-                val channelOngoingCall = NotificationChannel(
-                    NOTIFICATION_CHANNEL_ID_ONGOING,
-                    ongoingCallChannelName,
-                    NotificationManager.IMPORTANCE_LOW // disables notification popup for ongoing call
-                )
-                createNotificationChannel(channelOngoingCall)
+    private fun buildIncomingNotification(builder: NotificationCompat.Builder): Notification {
+        val silenced = silencedIncomingId != null && silencedIncomingId == incomingNotificationId
+        builder.setOnlyAlertOnce(silenced)
+        return builder.build().apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !silenced) {
+                // The channel owns ringtone/vibration, with one native alert
+                // stream per existing notification ID. No second player.
+                flags = flags or Notification.FLAG_INSISTENT
             }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun silenceIncomingCall(callId: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || incomingNotificationId != callId.hashCode()) return
+        silencedIncomingId = incomingNotificationId
+        val builder = notificationBuilder ?: return
+        try {
+            // Updating with ONLY_ALERT_ONCE stops Android's current alert
+            // without dismissing the matching invitation or its actions.
+            getNotificationManager().notify(callId.hashCode(), buildIncomingNotification(builder))
+        } catch (error: SecurityException) {
+            android.util.Log.w("WD_CALL", "CALL_NOTIFICATION_SILENCE_DENIED")
         }
     }
 
@@ -1028,7 +1002,7 @@ class CallkitNotificationManager(
     @SuppressLint("MissingPermission")
     fun showIncomingNotification(data: Bundle) {
         val callkitNotification = getIncomingNotification(data)
-        if (incomingChannelEnabled()) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O && incomingChannelEnabled()) {
             callkitSoundPlayerManager?.play(data)
             // Start Signify modification
             volumeKeyReceiver = VolumeKeyBroadcastReceiver()

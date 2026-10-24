@@ -180,6 +180,7 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         sharePluginWithRegister(flutterPluginBinding)
+        WordDailyCallChannels.ensure(flutterPluginBinding.applicationContext)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             InAppCallManager(flutterPluginBinding.applicationContext).registerPhoneAccount()
         }
@@ -241,6 +242,14 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
         val reply = SingleReply(result)
         try {
             when (call.method) {
+                "getCallNotificationChannelInfo" -> {
+                    reply.success(WordDailyCallChannels.info(requireNotNull(context)))
+                }
+                "openCallNotificationSettings" -> {
+                    val category = call.argument<String>("category") ?: "incoming"
+                    WordDailyCallChannels.openSettings(requireNotNull(context), category)
+                    reply.success(true)
+                }
                 "registerBackgroundHandler" -> {
                     val args = call.arguments as Map<*, *>
                     val pluginHandle = (args["pluginHandle"] as Number).toLong()
