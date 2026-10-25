@@ -22,7 +22,7 @@ import static org.junit.Assert.*;
 
 /** RemoteViews host bounds, not a claim of physical MIUI/HyperOS testing. */
 @RunWith(RobolectricTestRunner.class)
-@Config(sdk = {31, 35})
+@Config(sdk = {23, 31, 35})
 public class HeadsUpBoundsTest {
     private int dp(Context c, int n) {
         return Math.round(n * c.getResources().getDisplayMetrics().density);
@@ -97,6 +97,6 @@ public class HeadsUpBoundsTest {
         assertSame(expanded, notification.bigContentView);
         assertSame(collapsed, notification.contentView);
         assertEquals(flags, notification.flags);
-        assertEquals("existing-channel", notification.getChannelId());
+        if (Build.VERSION.SDK_INT >= 26) assertEquals("existing-channel", notification.getChannelId());
     }
 }

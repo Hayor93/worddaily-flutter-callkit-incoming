@@ -402,7 +402,7 @@ class CallkitNotificationManager(
         val affectedOem = Build.MANUFACTURER.equals("Xiaomi", true) ||
             Build.MANUFACTURER.equals("Redmi", true) ||
             Build.BRAND.equals("Redmi", true) || Build.BRAND.equals("POCO", true)
-        if (!affectedOem || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        if (!affectedOem || Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
         try {
             val id = data.getString(CallkitConstants.EXTRA_CALLKIT_ID, "callkit_incoming").hashCode()
             val person = Person.Builder()
