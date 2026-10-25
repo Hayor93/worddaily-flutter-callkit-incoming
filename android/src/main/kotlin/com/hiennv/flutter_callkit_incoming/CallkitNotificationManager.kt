@@ -300,8 +300,8 @@ class CallkitNotificationManager(
                 notificationBuilder?.setStyle(NotificationCompat.DecoratedCustomViewStyle())
                 notificationBuilder?.setCustomContentView(notificationSmallViews)
                 notificationBuilder?.setCustomBigContentView(notificationViews)
-                // Heads-up has an 84dp two-row layout; collapsed content stays within 48dp.
-                notificationBuilder?.setCustomHeadsUpContentView(notificationViews)
+                // Floating alerts reuse the compact 48dp row; expanded panel stays unchanged.
+                notificationBuilder?.setCustomHeadsUpContentView(notificationSmallViews)
             }
         } else {
             notificationBuilder?.setContentText(
