@@ -61,7 +61,7 @@ public class HeadsUpBoundsTest {
                 View avatar = root.findViewById(R.id.ivAvatar);
                 assertTrue(avatar.getTop() >= 0);
                 assertTrue(avatar.getBottom() <= root.getMeasuredHeight());
-                assertTrue(avatar.getClipToOutline());
+                if (Build.VERSION.SDK_INT >= 31) assertTrue(avatar.getClipToOutline());
                 assertNull(root.findViewById(R.id.tvNumber));
             }
         }
@@ -100,3 +100,4 @@ public class HeadsUpBoundsTest {
         if (Build.VERSION.SDK_INT >= 26) assertEquals("existing-channel", notification.getChannelId());
     }
 }
+
