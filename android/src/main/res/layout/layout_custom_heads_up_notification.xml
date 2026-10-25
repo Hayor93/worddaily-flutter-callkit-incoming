@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Content only: Android owns the surrounding heads-up template and height.
+     48dp touch targets when available; 32dp visuals remain centered if constrained. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minHeight="48dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical">
+    <ImageView
+        android:id="@+id/ivAvatar"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_marginEnd="8dp"
+        android:background="@drawable/worddaily_heads_up_avatar_circle"
+        android:clipToOutline="true"
+        android:scaleType="centerCrop"
+        android:src="@drawable/ic_default_avatar"
+        android:contentDescription="@null" />
+    <TextView
+        android:id="@+id/tvNameCaller"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginEnd="4dp"
+        android:gravity="center_vertical"
+        android:includeFontPadding="false"
+        android:singleLine="true"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textAppearance="@style/TextAppearance.Compat.Notification.Title"
+        android:textSize="14sp" />
+    <FrameLayout
+        android:id="@+id/llDecline"
+        android:layout_width="48dp"
+        android:layout_height="match_parent"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="@string/text_decline">
+        <ImageView
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_gravity="center"
+            android:padding="8dp"
+            android:background="@drawable/worddaily_heads_up_decline_circle"
+            android:src="@drawable/ic_decline"
+            android:tint="@android:color/white"
+            android:contentDescription="@null" />
+    </FrameLayout>
+    <FrameLayout
+        android:id="@+id/llAccept"
+        android:layout_width="48dp"
+        android:layout_height="match_parent"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="@string/text_accept">
+        <ImageView
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_gravity="center"
+            android:padding="8dp"
+            android:background="@drawable/worddaily_heads_up_accept_circle"
+            android:src="@drawable/ic_accept"
+            android:tint="@android:color/white"
+            android:contentDescription="@null" />
+    </FrameLayout>
+</LinearLayout>

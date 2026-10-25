@@ -20,6 +20,7 @@ import android.content.DialogInterface
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.media.AudioManager
 import android.media.RingtoneManager
@@ -36,6 +37,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
+import androidx.core.graphics.drawable.IconCompat
 import java.util.Date
 
 
@@ -69,6 +71,9 @@ class CallkitNotificationManager(
     private var silencedIncomingId: Int? = null
     private var notificationViews: RemoteViews? = null
     private var notificationSmallViews: RemoteViews? = null
+    private var notificationHeadsUpViews: RemoteViews? = null
+    private var headsUpData: Bundle? = null
+    private var headsUpAvatar: Bitmap? = null
 
     private var notificationMissingBuilder: NotificationCompat.Builder? = null
     private var notificationMissingViews: RemoteViews? = null
@@ -105,6 +110,8 @@ class CallkitNotificationManager(
         return object : SafeTarget(notificationId, onLoaded = { bitmap ->
             notificationViews?.setImageViewBitmap(R.id.ivAvatar, bitmap)
             notificationViews?.setViewVisibility(R.id.ivAvatar, View.VISIBLE)
+            notificationHeadsUpViews?.setImageViewBitmap(R.id.ivAvatar, bitmap)
+            headsUpAvatar = bitmap
             notificationSmallViews?.setImageViewBitmap(R.id.ivAvatar, bitmap)
             notificationSmallViews?.setViewVisibility(R.id.ivAvatar, View.VISIBLE)
             if (isCallStyle) notificationBuilder?.setLargeIcon(bitmap)
@@ -184,6 +191,9 @@ class CallkitNotificationManager(
 
     @SuppressLint("MissingPermission")
     fun getIncomingNotification(data: Bundle): CallkitNotification? {
+        notificationHeadsUpViews = null
+        headsUpData = null
+        headsUpAvatar = null
         data.putLong(EXTRA_TIME_START_CALL, System.currentTimeMillis())
 
         val notificationId =
@@ -279,6 +289,8 @@ class CallkitNotificationManager(
 
                 }
             } else {
+                headsUpData = Bundle(data)
+                notificationHeadsUpViews = createCompactHeadsUpViews(notificationId, data)
                 notificationViews =
                     RemoteViews(context.packageName, R.layout.layout_custom_notification)
                 initInComingNotificationViews(notificationId, notificationViews!!, data)
@@ -300,8 +312,8 @@ class CallkitNotificationManager(
                 notificationBuilder?.setStyle(NotificationCompat.DecoratedCustomViewStyle())
                 notificationBuilder?.setCustomContentView(notificationSmallViews)
                 notificationBuilder?.setCustomBigContentView(notificationViews)
-                // Floating alerts reuse the compact 48dp row; expanded panel stays unchanged.
-                notificationBuilder?.setCustomHeadsUpContentView(notificationSmallViews)
+                // A separate one-line heads-up view never borrows the shade layouts.
+                notificationBuilder?.setCustomHeadsUpContentView(notificationHeadsUpViews)
             }
         } else {
             notificationBuilder?.setContentText(
@@ -363,6 +375,54 @@ class CallkitNotificationManager(
         val notification = notificationBuilder?.let { buildIncomingNotification(it) }
 
         return notification?.let { CallkitNotification(notificationId, it) }
+    }
+
+    private fun createCompactHeadsUpViews(notificationId: Int, data: Bundle): RemoteViews {
+        return RemoteViews(context.packageName, R.layout.layout_custom_heads_up_notification).apply {
+            setTextViewText(R.id.tvNameCaller,
+                data.getString(CallkitConstants.EXTRA_CALLKIT_NAME_CALLER, ""))
+            setViewVisibility(R.id.ivAvatar, View.VISIBLE)
+            setOnClickPendingIntent(R.id.llDecline, getDeclinePendingIntent(notificationId, data))
+            setOnClickPendingIntent(R.id.llAccept, getAcceptPendingIntent(notificationId, data))
+            val decline = data.getString(CallkitConstants.EXTRA_CALLKIT_TEXT_DECLINE, "")
+            val accept = data.getString(CallkitConstants.EXTRA_CALLKIT_TEXT_ACCEPT, "")
+            setContentDescription(R.id.llDecline,
+                if (decline.isNullOrEmpty()) context.getString(R.string.text_decline) else decline)
+            setContentDescription(R.id.llAccept,
+                if (accept.isNullOrEmpty()) context.getString(R.string.text_accept) else accept)
+        }
+    }
+
+    // MIUI/HyperOS has already clipped custom heads-up content on reported devices.
+    // Ask Android's CallStyle to render ONLY that surface. Keep the original
+    // notification object, expanded/collapsed RemoteViews, channel, flags, sound,
+    // full-screen intent and every existing PendingIntent unchanged.
+    private fun applySystemHeadsUpFallback(notification: Notification) {
+        val data = headsUpData ?: return
+        val affectedOem = Build.MANUFACTURER.equals("Xiaomi", true) ||
+            Build.MANUFACTURER.equals("Redmi", true) ||
+            Build.BRAND.equals("Redmi", true) || Build.BRAND.equals("POCO", true)
+        if (!affectedOem || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        try {
+            val id = data.getString(CallkitConstants.EXTRA_CALLKIT_ID, "callkit_incoming").hashCode()
+            val person = Person.Builder()
+                .setName(data.getString(CallkitConstants.EXTRA_CALLKIT_NAME_CALLER, ""))
+                .setIcon(headsUpAvatar?.let { IconCompat.createWithBitmap(it) }
+                    ?: IconCompat.createWithResource(context, R.drawable.ic_default_avatar))
+                .build()
+            val systemBuilder = NotificationCompat.Builder(context, notification)
+                .setCustomContentView(null)
+                .setCustomBigContentView(null)
+                .setCustomHeadsUpContentView(null)
+                .setStyle(NotificationCompat.CallStyle.forIncomingCall(
+                    person, getDeclinePendingIntent(id, data), getAcceptPendingIntent(id, data)
+                ).setIsVideo(data.getInt(CallkitConstants.EXTRA_CALLKIT_TYPE, -1) > 0))
+            systemBuilder.createHeadsUpContentView()?.let { notification.headsUpContentView = it }
+        } catch (error: RuntimeException) {
+            // Retain the dedicated, bounded compact row if the platform cannot
+            // construct its template; never retry notification delivery or audio.
+            android.util.Log.w("WordDailyCallKit", "System heads-up template unavailable", error)
+        }
     }
 
     private fun initInComingNotificationViews(
@@ -907,6 +967,7 @@ class CallkitNotificationManager(
         val silenced = silencedIncomingId != null && silencedIncomingId == incomingNotificationId
         builder.setOnlyAlertOnce(silenced)
         return builder.build().apply {
+            applySystemHeadsUpFallback(this)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !silenced) {
                 // The channel owns ringtone/vibration, with one native alert
                 // stream per existing notification ID. No second player.
@@ -1161,5 +1222,3 @@ class CallkitNotificationManager(
 }
 
 data class CallkitNotification(val id: Int, val notification: Notification)
-
-
