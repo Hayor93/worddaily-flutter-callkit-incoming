@@ -300,7 +300,8 @@ class CallkitNotificationManager(
                 notificationBuilder?.setStyle(NotificationCompat.DecoratedCustomViewStyle())
                 notificationBuilder?.setCustomContentView(notificationSmallViews)
                 notificationBuilder?.setCustomBigContentView(notificationViews)
-                notificationBuilder?.setCustomHeadsUpContentView(notificationSmallViews)
+                // Heads-up has an 84dp two-row layout; collapsed content stays within 48dp.
+                notificationBuilder?.setCustomHeadsUpContentView(notificationViews)
             }
         } else {
             notificationBuilder?.setContentText(
@@ -370,6 +371,8 @@ class CallkitNotificationManager(
         remoteViews.setTextViewText(
             R.id.tvNameCaller, data.getString(CallkitConstants.EXTRA_CALLKIT_NAME_CALLER, "")
         )
+        // Always retain a visible fallback avatar when URL is absent or loading fails.
+        remoteViews.setViewVisibility(R.id.ivAvatar, View.VISIBLE)
         val isShowCallID = data.getBoolean(CallkitConstants.EXTRA_CALLKIT_IS_SHOW_CALL_ID, false)
         if (isShowCallID) {
             remoteViews.setTextViewText(
