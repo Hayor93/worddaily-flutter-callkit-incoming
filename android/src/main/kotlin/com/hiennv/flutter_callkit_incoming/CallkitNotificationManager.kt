@@ -379,6 +379,7 @@ class CallkitNotificationManager(
 
     private fun createCompactHeadsUpViews(notificationId: Int, data: Bundle): RemoteViews {
         return RemoteViews(context.packageName, R.layout.layout_custom_heads_up_notification).apply {
+            setBoolean(R.id.ivAvatar, "setClipToOutline", true)
             setTextViewText(R.id.tvNameCaller,
                 data.getString(CallkitConstants.EXTRA_CALLKIT_NAME_CALLER, ""))
             setViewVisibility(R.id.ivAvatar, View.VISIBLE)
