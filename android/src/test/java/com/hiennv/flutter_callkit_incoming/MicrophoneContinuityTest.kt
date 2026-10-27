@@ -18,10 +18,12 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLog
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [31, 34, 35])
 class MicrophoneContinuityTest {
+    private fun serviceLogs() = ShadowLog.getLogsForTag("CallkitNotificationService").joinToString("\n") { it.msg + " " + it.throwable }
     private val context: Application get() = RuntimeEnvironment.getApplication()
     private val id = "4a66c493-b5d0-4186-a3af-0a05c9600d28"
     @Before fun setup() { removeAllCalls(context); shadowOf(context).grantPermissions(Manifest.permission.RECORD_AUDIO) }
@@ -36,7 +38,7 @@ class MicrophoneContinuityTest {
             assertEquals(Service.START_STICKY, service.onStartCommand(null, 0, 1))
             assertTrue(CallkitNotificationService.hasMicrophoneForeground(id))
             assertNotNull(shadowOf(service).lastForegroundNotification)
-            assertEquals(Service.START_STICKY, service.onStartCommand(null, 0, 2))
+            assertEquals(serviceLogs(), Service.START_STICKY, service.onStartCommand(null, 0, 2))
         } finally { controller.destroy() }
         assertFalse(CallkitNotificationService.hasMicrophoneForeground(id))
     }
@@ -77,9 +79,25 @@ class MicrophoneContinuityTest {
         try {
             assertEquals(Service.START_STICKY, controller.get().onStartCommand(intent, 0, 1))
             assertTrue(CallkitNotificationService.hasMicrophoneForeground(id))
-            assertEquals(Service.START_STICKY, controller.get().onStartCommand(intent, 0, 2))
+            assertEquals(serviceLogs(), Service.START_STICKY, controller.get().onStartCommand(intent, 0, 2))
             assertFalse(CallkitNotificationService.hasMicrophoneForeground("another-session"))
         } finally { controller.destroy() }
         assertFalse(CallkitNotificationService.hasMicrophoneForeground(id))
+    }
+
+    @Test fun grantedPermissionUpgradesPhoneOnlyServiceWithoutLosingForeground() {
+        shadowOf(context).denyPermissions(Manifest.permission.RECORD_AUDIO)
+        val controller = Robolectric.buildService(CallkitNotificationService::class.java).create()
+        val intent = Intent(context, CallkitNotificationService::class.java)
+            .setAction(CallkitNotificationService.ACTION_MICROPHONE_READY)
+            .putExtra(CallkitConstants.EXTRA_CALLKIT_INCOMING_DATA, data().toBundle())
+        try {
+            assertEquals(Service.START_STICKY, controller.get().onStartCommand(intent, 0, 1))
+            assertFalse(CallkitNotificationService.hasMicrophoneForeground(id))
+            shadowOf(context).grantPermissions(Manifest.permission.RECORD_AUDIO)
+            val result = controller.get().onStartCommand(intent, 0, 2)
+            assertEquals(serviceLogs(), Service.START_STICKY, result)
+            assertTrue(serviceLogs(), CallkitNotificationService.hasMicrophoneForeground(id))
+        } finally { controller.destroy() }
     }
 }

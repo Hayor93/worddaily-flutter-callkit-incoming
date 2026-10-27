@@ -106,6 +106,14 @@ class CallkitNotificationService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val bundle = intent?.getBundleExtra(CallkitConstants.EXTRA_CALLKIT_INCOMING_DATA)
+        // Repeated visible-screen checks must not rebuild or downgrade an
+        // already established microphone service. A phone-only service still
+        // passes through promotion once RECORD_AUDIO has been granted.
+        if (foregroundActive && microphoneForeground &&
+            ((intent?.action == ACTION_MICROPHONE_READY && bundle?.getString(CallkitConstants.EXTRA_CALLKIT_ID) == foregroundCallId) ||
+             (intent == null && getDataActiveCalls(this).any { it.id == foregroundCallId && it.isAccepted }))) {
+            return START_STICKY
+        }
         val isForegroundAction = intent?.action in ActionForeground
         val needsPlaceholder = isForegroundAction &&
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
