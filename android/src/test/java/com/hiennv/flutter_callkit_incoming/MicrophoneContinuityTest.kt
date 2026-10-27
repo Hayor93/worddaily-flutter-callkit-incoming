@@ -30,6 +30,14 @@ class MicrophoneContinuityTest {
     @After fun cleanup() { removeAllCalls(context) }
     private fun data() = Data(mapOf("id" to id, "nameCaller" to "WordDaily", "type" to 0))
 
+    @Test fun returningFromCallNotificationReusesTheAppTask() {
+        val intent = AppUtils.getAppIntent(context)
+        assertNotNull(intent)
+        assertEquals(0, intent!!.flags and Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        assertEquals(0, intent.flags and Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        assertTrue((intent.flags and Intent.FLAG_ACTIVITY_REORDER_TO_FRONT) != 0)
+    }
+
     @Test fun activeMicrophoneServiceIsStickyAndRestoresWithoutFlutterPlugin() {
         addCall(context, data(), true)
         val controller = Robolectric.buildService(CallkitNotificationService::class.java).create()
