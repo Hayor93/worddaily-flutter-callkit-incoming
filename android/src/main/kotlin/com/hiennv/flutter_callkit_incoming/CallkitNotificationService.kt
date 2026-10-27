@@ -6,6 +6,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -15,16 +16,51 @@ import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 
 class CallkitNotificationService : Service() {
 
     companion object {
 
         private const val TAG = "CallkitNotificationService"
+        const val ACTION_MICROPHONE_READY = "worddaily.call.MICROPHONE_READY"
+        private var foregroundCallId: String? = null
+        private var microphoneForeground = false
+
+        fun hasMicrophoneForeground(id: String): Boolean =
+            id.isNotEmpty() && foregroundCallId == id && microphoneForeground
+
+        fun canStartMicrophone(activity: Activity?, granted: Boolean): Boolean =
+            granted && activity != null && !activity.isFinishing &&
+                (activity as? LifecycleOwner)?.lifecycle?.currentState
+                    ?.isAtLeast(Lifecycle.State.RESUMED) == true
+
+        // Called from the visible Flutter call screen, never the FCM isolate.
+        fun ensureMicrophoneForeground(context: Context, activity: Activity?, requested: Data): Boolean {
+            if (hasMicrophoneForeground(requested.id)) return true
+            val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            if (requested.id.isBlank() || !canStartMicrophone(activity, granted)) {
+                Log.i(TAG, "[WD_AUDIO] microphone_fgs_deferred permission=$granted activity_resumed=${canStartMicrophone(activity, true)}")
+                return false
+            }
+            val data = getDataActiveCalls(context).firstOrNull { it.id == requested.id } ?: requested
+            data.isShowCallingNotification = true
+            data.type = 0 // WordDaily calls are audio-only; never request camera FGS.
+            addCall(context, data, true)
+            return try {
+                startServiceWithAction(context, ACTION_MICROPHONE_READY, data.toBundle())
+                true
+            } catch (e: Exception) {
+                Log.w(TAG, "[WD_AUDIO] microphone_fgs_start_failed type=${e.javaClass.simpleName}")
+                false
+            }
+        }
 
         private val ActionForeground = listOf(
             CallkitConstants.ACTION_CALL_START,
-            CallkitConstants.ACTION_CALL_ACCEPT
+            CallkitConstants.ACTION_CALL_ACCEPT,
+            ACTION_MICROPHONE_READY
         )
 
 
@@ -61,7 +97,12 @@ class CallkitNotificationService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        Log.i(TAG, "[WD_AUDIO] service_created")
+        captureDiagnostics = WordDailyCaptureDiagnostics(this).also { it.start() }
     }
+
+    private var foregroundActive = false
+    private var captureDiagnostics: WordDailyCaptureDiagnostics? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val bundle = intent?.getBundleExtra(CallkitConstants.EXTRA_CALLKIT_INCOMING_DATA)
@@ -69,7 +110,7 @@ class CallkitNotificationService : Service() {
         val needsPlaceholder = isForegroundAction &&
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                 bundle?.getBoolean(CallkitConstants.EXTRA_CALLKIT_CALLING_SHOW, true) == true
-        if (needsPlaceholder) {
+        if (needsPlaceholder && !foregroundActive) {
             if (!showPlaceholderForegroundNotification(bundle)) {
                 return START_NOT_STICKY
             }
@@ -77,6 +118,10 @@ class CallkitNotificationService : Service() {
 
         try {
             when (intent?.action) {
+                ACTION_MICROPHONE_READY -> {
+                    if (bundle == null) { stopSelf(); return START_NOT_STICKY }
+                    showOngoingCallNotification(bundle)
+                }
                 CallkitConstants.ACTION_CALL_START -> {
                     intent.getBundleExtra(CallkitConstants.EXTRA_CALLKIT_INCOMING_DATA)
                         ?.let {
@@ -106,7 +151,7 @@ class CallkitNotificationService : Service() {
                     // Flutter engine may not be running yet — create a standalone manager
                     // using only Context so we can restore startForeground() without the plugin.
                     val activeCalls = getDataActiveCalls(this)
-                    val bundle = activeCalls.firstOrNull()?.toBundle()
+                    val bundle = activeCalls.firstOrNull { it.isAccepted && it.isShowCallingNotification }?.toBundle()
                     if (bundle != null) {
                         val pluginManager = getCallkitNotificationManager()
                         val manager = pluginManager
@@ -120,6 +165,7 @@ class CallkitNotificationService : Service() {
                                 notification.notification,
                                 typeCall > 0
                             )
+                            foregroundCallId = bundle.getString(CallkitConstants.EXTRA_CALLKIT_ID)
                             if (pluginManager == null) manager.destroy()
                         } else {
                             if (pluginManager == null) manager.destroy()
@@ -132,18 +178,24 @@ class CallkitNotificationService : Service() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to show the ongoing call notification", e)
-            if (needsPlaceholder) {
+            if (needsPlaceholder || intent == null) {
+                foregroundActive = false
+                microphoneForeground = false
+                foregroundCallId = null
                 stopSelf()
             }
         }
-        return START_NOT_STICKY
+        Log.i(TAG, "[WD_AUDIO] service_start foreground=$foregroundActive microphone=$microphoneForeground restarted=${intent == null}")
+        return if (foregroundActive) START_STICKY else START_NOT_STICKY
     }
 
     @SuppressLint("MissingPermission")
     private fun showOngoingCallNotification(bundle: Bundle) {
 
-        val callkitNotification =
-            getCallkitNotificationManager()?.getOnGoingCallNotification(bundle, false)
+        val sharedManager = getCallkitNotificationManager()
+        val manager = sharedManager ?: CallkitNotificationManager(this, null)
+        manager.createNotificationChanel(bundle)
+        val callkitNotification = manager.getOnGoingCallNotification(bundle, false)
         if (callkitNotification != null) {
             val typeCall = bundle.getInt(CallkitConstants.EXTRA_CALLKIT_TYPE, -1)
             startForeground(
@@ -151,7 +203,9 @@ class CallkitNotificationService : Service() {
                 callkitNotification.notification,
                 typeCall > 0
             )
+            foregroundCallId = bundle.getString(CallkitConstants.EXTRA_CALLKIT_ID)
         }
+        if (sharedManager == null) manager.destroy()
     }
 
     private fun getOnGoingNotificationId(bundle: Bundle): Int {
@@ -227,9 +281,13 @@ class CallkitNotificationService : Service() {
                 }
             }
             startForeground(notificationId, notification, mask)
+            microphoneForeground = Build.VERSION.SDK_INT < Build.VERSION_CODES.R ||
+                (mask and ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE) != 0
         } else {
             startForeground(notificationId, notification)
+            microphoneForeground = isPermissionGranted(Manifest.permission.RECORD_AUDIO)
         }
+        foregroundActive = true
     }
 
     private fun isPermissionGranted(permission: String): Boolean =
@@ -237,6 +295,12 @@ class CallkitNotificationService : Service() {
 
 
     override fun onDestroy() {
+        captureDiagnostics?.stop()
+        captureDiagnostics = null
+        foregroundActive = false
+        microphoneForeground = false
+        foregroundCallId = null
+        Log.i(TAG, "[WD_AUDIO] service_destroyed")
         super.onDestroy()
         // Don't destroy the notification manager here as it's shared across the app
         // The plugin will handle cleanup when all engines are detached

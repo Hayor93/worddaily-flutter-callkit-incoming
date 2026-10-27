@@ -1,7 +1,7 @@
-name: Android heads-up bounds
+name: Android call continuity and heads-up regression
 on:
   push:
-    branches: [codex/android-call-notifications]
+    branches: [codex/android-call-notifications, codex/background-microphone]
   workflow_dispatch:
 permissions:
   contents: read
@@ -30,6 +30,25 @@ jobs:
       - name: Verify RemoteViews bounds and preserved expanded surface
         run: ./gradlew :flutter_callkit_incoming:testDebugUnitTest -PworddailyHeadsUpTests
         working-directory: example/android
+      - name: Verify merged Android call service permissions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          manifests=list(Path('example/build').rglob('merged_manifests/**/AndroidManifest.xml')) + list(Path('build').rglob('merged_manifests/**/AndroidManifest.xml'))
+          assert manifests, 'No merged manifest produced'
+          ns='{http://schemas.android.com/apk/res/android}'
+          for path in manifests:
+            root=ET.parse(path).getroot()
+            services=[s for s in root.iter('service') if s.get(ns+'name')=='com.hiennv.flutter_callkit_incoming.CallkitNotificationService']
+            if not services: continue
+            permissions={p.get(ns+'name') for p in root.findall('uses-permission')}
+            assert {'android.permission.RECORD_AUDIO','android.permission.FOREGROUND_SERVICE','android.permission.FOREGROUND_SERVICE_MICROPHONE','android.permission.FOREGROUND_SERVICE_PHONE_CALL'} <= permissions
+            assert {'phoneCall','microphone'} <= set(services[0].get(ns+'foregroundServiceType','').split('|'))
+            print('PASS merged call service manifest:',path)
+            break
+          else: raise AssertionError('Call service missing from merged manifests')
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:

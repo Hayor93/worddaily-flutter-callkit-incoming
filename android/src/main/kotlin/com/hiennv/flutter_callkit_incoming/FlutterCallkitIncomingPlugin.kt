@@ -381,6 +381,25 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                     reply.success(true)
                 }
 
+                "ensureMicrophoneForeground" -> {
+                    val appContext = context
+                    val data = Data(call.arguments() ?: HashMap())
+                    reply.success(appContext != null && CallkitNotificationService.ensureMicrophoneForeground(appContext, activity, data))
+                }
+
+                "microphoneForegroundState" -> {
+                    val id = call.argument<String>("id") ?: ""
+                    reply.success(CallkitNotificationService.hasMicrophoneForeground(id))
+                }
+
+                "releaseMicrophoneForeground" -> {
+                    val id = call.argument<String>("id") ?: ""
+                    if (CallkitNotificationService.hasMicrophoneForeground(id)) {
+                        context?.let { CallkitNotificationService.stopService(it) }
+                    }
+                    reply.success(true)
+                }
+
                 "endAllCalls" -> {
                     val calls = getDataActiveCalls(context)
                     calls.forEach {
@@ -510,6 +529,7 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        WordDailyAudioDiagnostics.install(binding.activity.application)
         instance.context = binding.activity.applicationContext
         instance.activity = binding.activity
         binding.addRequestPermissionsResultListener(this)
@@ -519,6 +539,7 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
     }
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        WordDailyAudioDiagnostics.install(binding.activity.application)
         instance.context = binding.activity.applicationContext
         instance.activity = binding.activity
         binding.addRequestPermissionsResultListener(this)
